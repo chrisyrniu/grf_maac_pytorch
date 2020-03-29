@@ -266,7 +266,11 @@ class AttentionSAC(object):
         """
         Instantiate instance of this class from file created by 'save' method
         """
-        save_dict = torch.load(filename)
+        try:
+            save_dict = torch.load(filename)
+        except:
+            print('Cannot load gpu model. Move it to cpu.')
+            save_dict = torch.load(filename, map_location=torch.device('cpu'))
         instance = cls(**save_dict['init_dict'])
         instance.init_dict = save_dict['init_dict']
         for a, params in zip(instance.agents, save_dict['agent_params']):

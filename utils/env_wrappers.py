@@ -28,11 +28,10 @@ def worker(remote, parent_remote, env_fn_wrapper):
         elif cmd == 'get_spaces':
             remote.send((env.observation_space, env.action_space))
         elif cmd == 'get_agent_types':
-            if all([hasattr(a, 'adversary') for a in env.agents]):
-                remote.send(['adversary' if a.adversary else 'agent' for a in
-                             env.agents])
-            else:
-                remote.send(['agent' for _ in env.agents])
+            agent_type_left = ['agent' for _ in range(env.num_controlled_lagents)]
+            agent_type_right = ['adversary' for _ in range(env.num_controlled_ragents)]
+            agent_types = agent_type_left + agent_type_right
+            remote.send(agent_types)
         else:
             raise NotImplementedError
 
@@ -79,7 +78,7 @@ class SubprocVecEnv(VecEnv):
     def reset_task(self):
         for remote in self.remotes:
             remote.send(('reset_task', None))
-        return np.stack([remote.recv() for remote in self.remotes])
+        return np.stack([remote.recv() for remote in self.remotes])   
 
     def close(self):
         if self.closed:
@@ -99,11 +98,9 @@ class DummyVecEnv(VecEnv):
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]        
         VecEnv.__init__(self, len(env_fns), env.observation_space, env.action_space)
-        if all([hasattr(a, 'adversary') for a in env.agents]):
-            self.agent_types = ['adversary' if a.adversary else 'agent' for a in
-                                env.agents]
-        else:
-            self.agent_types = ['agent' for _ in env.agents]
+        self.agent_type_left = ['agent' for _ in range(env.num_controlled_lagents)]
+        self.agent_type_right = ['adversary' for _ in range(env.num_controlled_ragents)]
+        self.agent_types = self.agent_type_left + self.agent_type_right
         self.ts = np.zeros(len(self.envs), dtype='int')        
         self.actions = None
 
@@ -115,7 +112,7 @@ class DummyVecEnv(VecEnv):
         obs, rews, dones, infos = map(np.array, zip(*results))
         self.ts += 1
         for (i, done) in enumerate(dones):
-            if all(done): 
+            if all(done):
                 obs[i] = self.envs[i].reset()
                 self.ts[i] = 0
         self.actions = None
@@ -123,7 +120,7 @@ class DummyVecEnv(VecEnv):
 
     def reset(self):        
         results = [env.reset() for env in self.envs]
-        return np.array(results)
+        return np.array(results)       
 
     def close(self):
         return

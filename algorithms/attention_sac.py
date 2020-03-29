@@ -108,7 +108,7 @@ class AttentionSAC(object):
                 q_loss += reg  # regularizing attention
         q_loss.backward()
         self.critic.scale_shared_grads()
-        grad_norm = torch.nn.utils.clip_grad_norm(
+        grad_norm = torch.nn.utils.clip_grad_norm_(
             self.critic.parameters(), 10 * self.nagents)
         self.critic_optimizer.step()
         self.critic_optimizer.zero_grad()
@@ -155,7 +155,7 @@ class AttentionSAC(object):
             pol_loss.backward()
             enable_gradients(self.critic)
 
-            grad_norm = torch.nn.utils.clip_grad_norm(
+            grad_norm = torch.nn.utils.clip_grad_norm_(
                 curr_agent.policy.parameters(), 0.5)
             curr_agent.policy_optimizer.step()
             curr_agent.policy_optimizer.zero_grad()

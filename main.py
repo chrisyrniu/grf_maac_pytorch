@@ -6,16 +6,18 @@ from gym.spaces import Box, Discrete
 from pathlib import Path
 from torch.autograd import Variable
 from tensorboardX import SummaryWriter
-from utils.make_env import make_env
+from utils.multi_agent_env import MultiAgentEnv
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.attention_sac import AttentionSAC
+import gym
 
+gym.logger.set_level(40)
 
-def make_parallel_env(env_id, n_rollout_threads, seed):
+def make_parallel_env(env_id, n_rollout_threads, seed, num_controlled_lagents, num_controlled_ragents, reward_type, render):
     def get_env_fn(rank):
         def init_env():
-            env = make_env(env_id, discrete_action=True)
+            env = MultiAgentEnv(env_id, num_controlled_lagents, num_controlled_ragents, reward_type, render)
             env.seed(seed + rank * 1000)
             np.random.seed(seed + rank * 1000)
             return env
@@ -26,6 +28,10 @@ def make_parallel_env(env_id, n_rollout_threads, seed):
         return SubprocVecEnv([get_env_fn(i) for i in range(n_rollout_threads)])
 
 def run(config):
+    USE_CUDA = False
+    if config.gpu:
+        if torch.cuda.is_available():
+            USE_CUDA = True
     model_dir = Path('./models') / config.env_id / config.model_name
     if not model_dir.exists():
         run_num = 1
@@ -45,7 +51,8 @@ def run(config):
 
     torch.manual_seed(run_num)
     np.random.seed(run_num)
-    env = make_parallel_env(config.env_id, config.n_rollout_threads, run_num)
+    env = make_parallel_env(config.env_id, config.n_rollout_threads, run_num,
+                            config.n_controlled_lagents, config.n_controlled_ragents, config.reward_type, config.render)
     model = AttentionSAC.init_from_env(env,
                                        tau=config.tau,
                                        pi_lr=config.pi_lr,
@@ -61,9 +68,9 @@ def run(config):
                                   for acsp in env.action_space])
     t = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
-        print("Episodes %i-%i of %i" % (ep_i + 1,
-                                        ep_i + 1 + config.n_rollout_threads,
-                                        config.n_episodes))
+        # print("Episodes %i-%i of %i" % (ep_i + 1,
+        #                                 ep_i + 1 + config.n_rollout_threads,
+        #                                 config.n_episodes))
         obs = env.reset()
         model.prep_rollouts(device='cpu')
 
@@ -84,21 +91,28 @@ def run(config):
             t += config.n_rollout_threads
             if (len(replay_buffer) >= config.batch_size and
                 (t % config.steps_per_update) < config.n_rollout_threads):
-                if config.use_gpu:
+                if USE_CUDA:
                     model.prep_training(device='gpu')
                 else:
                     model.prep_training(device='cpu')
                 for u_i in range(config.num_updates):
                     sample = replay_buffer.sample(config.batch_size,
-                                                  to_gpu=config.use_gpu)
+                                                  to_gpu=USE_CUDA)
                     model.update_critic(sample, logger=logger)
                     model.update_policies(sample, logger=logger)
                     model.update_all_targets()
                 model.prep_rollouts(device='cpu')
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
+        if ep_i%10 == 0:
+            print(ep_i)
+            print(ep_rews)
+
+        global_ep_rews = 0
         for a_i, a_ep_rew in enumerate(ep_rews):
-            logger.add_scalar('agent%i/mean_episode_rewards' % a_i, a_ep_rew, ep_i)
+            logger.add_scalars('agent%i/rewards' % a_i, {'mean_episode_rewards': a_ep_rew}, ep_i)
+            global_ep_rews += a_ep_rew / (config.n_controlled_lagents + config.n_controlled_ragents)
+        logger.add_scalars('global', {'global_rewards': global_ep_rews}, ep_i)
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             model.prep_rollouts(device='cpu')
@@ -118,10 +132,12 @@ if __name__ == '__main__':
     parser.add_argument("model_name",
                         help="Name of directory to store " +
                              "model/training contents")
-    parser.add_argument("--n_rollout_threads", default=12, type=int)
+    parser.add_argument("--n_rollout_threads", default=1, type=int)
+    parser.add_argument("--n_controlled_lagents", default=2, type=int)
+    parser.add_argument("--n_controlled_ragents", default=0, type=int)
     parser.add_argument("--buffer_length", default=int(1e6), type=int)
     parser.add_argument("--n_episodes", default=50000, type=int)
-    parser.add_argument("--episode_length", default=25, type=int)
+    parser.add_argument("--episode_length", default=200, type=int)
     parser.add_argument("--steps_per_update", default=100, type=int)
     parser.add_argument("--num_updates", default=4, type=int,
                         help="Number of updates per update cycle")
@@ -137,7 +153,11 @@ if __name__ == '__main__':
     parser.add_argument("--tau", default=0.001, type=float)
     parser.add_argument("--gamma", default=0.99, type=float)
     parser.add_argument("--reward_scale", default=100., type=float)
-    parser.add_argument("--use_gpu", action='store_true')
+    parser.add_argument("--render", action="store_true")
+    parser.add_argument("--gpu", action='store_true')
+    parser.add_argument("--reward_type",
+                        default="scoring", type=str,
+                        choices=['scoring', 'checkpoints'])
 
     config = parser.parse_args()
 

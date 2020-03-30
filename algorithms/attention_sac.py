@@ -219,6 +219,10 @@ class AttentionSAC(object):
         Save trained parameters of all agents into one file
         """
         self.prep_training(device='cpu')  # move parameters to CPU before saving
+#         for state in self.critic_optimizer.state.values():
+#             for k, v in state.items():
+#                 if isinstance(v, torch.Tensor):
+#                     print(v.device)
         save_dict = {'init_dict': self.init_dict,
                      'agent_params': [a.get_params() for a in self.agents],
                      'critic_params': {'critic': self.critic.state_dict(),
@@ -281,4 +285,36 @@ class AttentionSAC(object):
             instance.critic.load_state_dict(critic_params['critic'])
             instance.target_critic.load_state_dict(critic_params['target_critic'])
             instance.critic_optimizer.load_state_dict(critic_params['critic_optimizer'])
+            
+        return instance
+    
+    @classmethod
+    def init_from_save_(cls, filename, load_critic=False, gpu=False):
+        """
+        Read checkpoints from file created by 'save' method. Can be continued with gpu.
+        """
+        try:
+            save_dict = torch.load(filename)
+        except:
+            print('Cannot load gpu model. Move it to cpu.')
+            save_dict = torch.load(filename, map_location=torch.device('cpu'))
+        instance = cls(**save_dict['init_dict'])
+        instance.init_dict = save_dict['init_dict']
+        for a, params in zip(instance.agents, save_dict['agent_params']):
+            a.load_params(params)
+            if gpu:
+                for state in a.policy_optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.cuda()                
+        if load_critic:
+            critic_params = save_dict['critic_params']
+            instance.critic.load_state_dict(critic_params['critic'])
+            instance.target_critic.load_state_dict(critic_params['target_critic'])
+            instance.critic_optimizer.load_state_dict(critic_params['critic_optimizer']) 
+            if gpu:
+                for state in instance.critic_optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.cuda()
         return instance

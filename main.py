@@ -48,6 +48,9 @@ def run(config):
     log_dir = run_dir / 'logs'
     os.makedirs(log_dir)
     logger = SummaryWriter(str(log_dir))
+    
+#     model_run = 'run%i' % max(exst_run_nums)
+#     model_path = model_dir / model_run / 'model.pt'
 
     torch.manual_seed(run_num)
     np.random.seed(run_num)
@@ -62,15 +65,15 @@ def run(config):
                                        critic_hidden_dim=config.critic_hidden_dim,
                                        attend_heads=config.attend_heads,
                                        reward_scale=config.reward_scale)
+    
+#     model = AttentionSAC.init_from_save_(model_path, load_critic=False, gpu=USE_CUDA)
+    
     replay_buffer = ReplayBuffer(config.buffer_length, model.nagents,
                                  [obsp.shape[0] for obsp in env.observation_space],
                                  [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
                                   for acsp in env.action_space])
     t = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
-        # print("Episodes %i-%i of %i" % (ep_i + 1,
-        #                                 ep_i + 1 + config.n_rollout_threads,
-        #                                 config.n_episodes))
         obs = env.reset()
         model.prep_rollouts(device='cpu')
 
@@ -104,7 +107,7 @@ def run(config):
                 model.prep_rollouts(device='cpu')
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
-        if ep_i%10 == 0:
+        if ep_i%50 == 0:
             print(ep_i)
             print(ep_rews)
 

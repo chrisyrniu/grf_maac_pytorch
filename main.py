@@ -72,8 +72,12 @@ def run(config):
                                  [obsp.shape[0] for obsp in env.observation_space],
                                  [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
                                   for acsp in env.action_space])
+    best_rewards = 0
     t = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
+#         print("Episodes %i-%i of %i" % (ep_i + 1,
+#                                         ep_i + 1 + config.n_rollout_threads,
+#                                         config.n_episodes))
         obs = env.reset()
         model.prep_rollouts(device='cpu')
 
@@ -107,15 +111,22 @@ def run(config):
                 model.prep_rollouts(device='cpu')
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
-        if ep_i%50 == 0:
-            print(ep_i)
-            print(ep_rews)
-
         global_ep_rews = 0
         for a_i, a_ep_rew in enumerate(ep_rews):
             logger.add_scalars('agent%i/rewards' % a_i, {'mean_episode_rewards': a_ep_rew}, ep_i)
             global_ep_rews += a_ep_rew / (config.n_controlled_lagents + config.n_controlled_ragents)
         logger.add_scalars('global', {'global_rewards': global_ep_rews}, ep_i)
+
+        if ep_i%500 == 0:
+            print('episode: ', ep_i)
+            print('global reward: ', global_ep_rews)
+        
+        if global_ep_rews > best_rewards:
+            best_rewards = global_ep_rews
+            if ep_i > 10000:
+                model.save(run_dir / ('best_model_ep%i.pt' % ep_i))
+                print('best model saved at ep%i' % ep_i)
+                print('global reward: ', global_ep_rews)
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             model.prep_rollouts(device='cpu')

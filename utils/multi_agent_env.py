@@ -29,10 +29,16 @@ class MultiAgentEnv(gym.Env):
 			action_space = gym.spaces.Discrete(self.env.action_space.nvec[1])
 		else:
 			action_space = self.env.action_space
-		observation_space = gym.spaces.Box(
-	        low=self.env.observation_space.low[0],
-	        high=self.env.observation_space.high[0],
-			dtype=self.env.observation_space.dtype)
+		if self.num_controlled_agents > 1:
+			observation_space = gym.spaces.Box(
+		        low=self.env.observation_space.low[0],
+		        high=self.env.observation_space.high[0],
+				dtype=self.env.observation_space.dtype)
+		else:
+			observation_space = gym.spaces.Box(
+		        low=self.env.observation_space.low,
+		        high=self.env.observation_space.high,
+				dtype=self.env.observation_space.dtype)			
 		self.action_space = [action_space for _ in range(self.num_controlled_agents)]
 		self.observation_space = [observation_space for _ in range(self.num_controlled_agents)]
 
@@ -57,11 +63,14 @@ class MultiAgentEnv(gym.Env):
 			if self.num_controlled_agents > 1:
 				obs.append(original_obs[x])
 			else:
-				obs = original_obs
+				obs.append(original_obs)
 		return obs
 
 	def step(self, actions):
 		o, r, d, i = self.env.step(actions)
+		if self.num_controlled_agents == 1:
+			o = [o]
+			r = [r]
 		next_obs = [o[x] for x in range(len(o))]
 		rewards = r
 		dones = [d for x in range(len(o))]

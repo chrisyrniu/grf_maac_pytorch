@@ -116,17 +116,23 @@ def run(config):
             logger.add_scalars('agent%i/rewards' % a_i, {'mean_episode_rewards': a_ep_rew}, ep_i)
             global_ep_rews += a_ep_rew / (config.n_controlled_lagents + config.n_controlled_ragents)
         logger.add_scalars('global', {'global_rewards': global_ep_rews}, ep_i)
-
-        if ep_i%500 == 0:
-            print('episode: ', ep_i)
-            print('global reward: ', global_ep_rews)
+        
+        if global_ep_rews > 0.007:
+            model.save(run_dir / ('model_ep%i.pt' % ep_i))
+            print('model saved at ep%i' % ep_i)   
+            print('saved model reward: ', global_ep_rews)
         
         if global_ep_rews > best_rewards:
             best_rewards = global_ep_rews
-            if ep_i > 10000:
+            if best_rewards > 0.005:
                 model.save(run_dir / ('best_model_ep%i.pt' % ep_i))
                 print('best model saved at ep%i' % ep_i)
-                print('global reward: ', global_ep_rews)
+                print('best global reward: ', best_rewards)
+                
+        if ep_i%500 == 0:
+            print('episode: ', ep_i)
+            print('global reward: ', global_ep_rews)
+            print('best global reward: ', best_rewards)
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             model.prep_rollouts(device='cpu')

@@ -74,12 +74,24 @@ def run(config):
                                   for acsp in env.action_space])
     best_rewards = 0
     t = 0
+    num_episodes = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
-#         print("Episodes %i-%i of %i" % (ep_i + 1,
-#                                         ep_i + 1 + config.n_rollout_threads,
-#                                         config.n_episodes))
+        
+        if ep_i % (config.epoch_size * config.n_rollout_threads) == 0:
+            stat = dict()
+            stat['epoch'] = int(ep_i / (config.epoch_size * config.n_rollout_threads) + 1)
+            
         obs = env.reset()
         model.prep_rollouts(device='cpu')
+        
+        s = dict()
+        s['dones'] = [0 for i in range(config.n_rollout_threads)]
+        s['num_episodes'] = [0 for i in range(config.n_rollout_threads)]
+        s['reward'] = [0 for i in range(config.n_rollout_threads)]
+        s['success'] = [0 for i in range(config.n_rollout_threads)]
+        s['steps_taken'] = [0 for i in range(config.n_rollout_threads)]
+        s['reward_buffer'] = [0 for i in range(config.n_rollout_threads)]
+        s['steps_buffer'] = [0 for i in range(config.n_rollout_threads)]
 
         for et_i in range(config.episode_length):
             # rearrange observations to be per agent, and convert to torch Variable
@@ -109,6 +121,25 @@ def run(config):
                     model.update_policies(sample, logger=logger)
                     model.update_all_targets()
                 model.prep_rollouts(device='cpu')
+                
+            for i in range(config.n_rollout_threads):
+                s['reward'][i] += np.mean(rewards[i])
+                s['steps_taken'][i] += 1
+                if dones[i][0] == True:
+                    s['dones'][i] += 1
+                    s['num_episodes'][i] += 1
+                    s['reward_buffer'][i] = s['reward'][i]
+                    s['steps_buffer'][i] = s['steps_taken'][i]
+                    if infos[i]['score_reward'] == 1:
+                        s['success'][i] += 1
+                if et_i == config.episode_length-1:
+                    if dones[i][0] == False:
+                        if s['dones'][i] > 0:
+                            s['reward'][i] = s['reward_buffer'][i]
+                            s['steps_taken'][i] = s['steps_buffer'][i]
+                        else:
+                            s['num_episodes'][i] += 1
+                            
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
         global_ep_rews = 0
@@ -119,26 +150,46 @@ def run(config):
         
         if global_ep_rews > 0.007:
             model.save(run_dir / ('model_ep%i.pt' % ep_i))
-            print('model saved at ep%i' % ep_i)   
-            print('saved model reward: ', global_ep_rews)
+#             print('model saved at ep%i' % ep_i)   
+#             print('saved model reward: ', global_ep_rews)
         
         if global_ep_rews > best_rewards:
             best_rewards = global_ep_rews
             if best_rewards > 0.005:
                 model.save(run_dir / ('best_model_ep%i.pt' % ep_i))
-                print('best model saved at ep%i' % ep_i)
-                print('best global reward: ', best_rewards)
+#                 print('best model saved at ep%i' % ep_i)
+#                 print('best global reward: ', best_rewards)
                 
-        if ep_i%500 == 0:
-            print('episode: ', ep_i)
-            print('global reward: ', global_ep_rews)
-            print('best global reward: ', best_rewards)
+#         if ep_i%500 == 0:
+#             print('episode: ', ep_i)
+#             print('global reward: ', global_ep_rews)
+#             print('best global reward: ', best_rewards)
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             model.prep_rollouts(device='cpu')
             os.makedirs(run_dir / 'incremental', exist_ok=True)
             model.save(run_dir / 'incremental' / ('model_ep%i.pt' % (ep_i + 1)))
             model.save(run_dir / 'model.pt')
+            
+        # An exact episode means a real episode in the game, rather than the episode in a training loop
+        # Mean (exact) episode data are only generated from complete exact episodes
+        # We calculate the mean (exact) episode data in each epoch
+        # (config.epoch_size * config.n_rollout_threads) means the number of training episodes an epoch includes
+        # The mean (exact) episode data are used for visualization and comparison
+        # Reward, Steps-Taken, Success
+
+        stat['num_episodes'] = stat.get('num_episodes', 0) + np.sum(s['num_episodes'])
+        stat['reward'] = stat.get('reward', 0) + np.sum(s['reward'])
+        stat['success'] = stat.get('success', 0) + np.sum(s['success'])
+        stat['steps_taken'] = stat.get('steps_taken', 0) + np.sum(s['steps_taken'])
+
+        if (ep_i+config.n_rollout_threads) % (config.epoch_size * config.n_rollout_threads) == 0:
+            num_episodes += stat['num_episodes']
+            print('Epoch {}'.format(stat['epoch']))
+            print('Episode: {}'.format(num_episodes))
+            print('Reward: {}'.format(stat['reward']/stat['num_episodes']))
+            print('Success: {:.2f}'.format(stat['success']/stat['num_episodes']))
+            print('Steps-Taken: {:.2f}'.format(stat['steps_taken']/stat['num_episodes']))
 
     model.save(run_dir / 'model.pt')
     env.close()
@@ -156,6 +207,7 @@ if __name__ == '__main__':
     parser.add_argument("--n_controlled_lagents", default=2, type=int)
     parser.add_argument("--n_controlled_ragents", default=0, type=int)
     parser.add_argument("--buffer_length", default=int(1e6), type=int)
+    parser.add_argument("--epoch_size", default=50, type=int)
     parser.add_argument("--n_episodes", default=50000, type=int)
     parser.add_argument("--episode_length", default=200, type=int)
     parser.add_argument("--steps_per_update", default=100, type=int)

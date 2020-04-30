@@ -16,7 +16,7 @@ MAAC implementation in Google Research Football
 
 ## Check Training Processing and Results
 * Use tensorboardx
-* Use plot_script.py:
+* Use plot_script.py and saved log file:
 
 `python plot_script.py saved/ name Reward`
 

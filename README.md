@@ -14,7 +14,7 @@ MAAC implementation in Google Research Football
 ## Run Testing
 `sh run_test.sh`
 
-## Check Training Processing and Results
+## Check Training Process and Results
 * Use tensorboardx
 * Use plot_script.py and saved log file:
 
